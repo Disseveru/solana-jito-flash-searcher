@@ -292,20 +292,11 @@ export class FlashBrain {
     const returnSwapIx = await this.fetchSwapInstructions(returnQuote, false);
     if (!returnSwapIx) return null;
 
-    // ── 4. Determine Solend flash loan accounts ──
+    // ── 4. Determine Solend flash loan accounts and token accounts ──
     const isSOL =
       inputMint === BASE_MINTS_OF_INTEREST.SOL.toBase58();
     const isUSDC =
       inputMint === BASE_MINTS_OF_INTEREST.USDC.toBase58();
-    const solendReserve = isUSDC
-      ? SOLEND_TURBO_USDC_RESERVE
-      : SOLEND_TURBO_SOL_RESERVE;
-    const solendLiquidity = isUSDC
-      ? SOLEND_TURBO_USDC_LIQUIDITY
-      : SOLEND_TURBO_SOL_LIQUIDITY;
-    const solendFeeReceiver = isUSDC
-      ? SOLEND_TURBO_USDC_FEE_RECEIVER
-      : SOLEND_TURBO_SOL_FEE_RECEIVER;
 
     // Derive the correct SPL token account (ATA) for the borrowed mint.
     // Solend flash borrow/repay require an SPL token account, not a
@@ -317,6 +308,16 @@ export class FlashBrain {
       inputMintPubkey,
       this.payer.publicKey,
     );
+
+    const solendReserve = isUSDC
+      ? SOLEND_TURBO_USDC_RESERVE
+      : SOLEND_TURBO_SOL_RESERVE;
+    const solendLiquidity = isUSDC
+      ? SOLEND_TURBO_USDC_LIQUIDITY
+      : SOLEND_TURBO_SOL_LIQUIDITY;
+    const solendFeeReceiver = isUSDC
+      ? SOLEND_TURBO_USDC_FEE_RECEIVER
+      : SOLEND_TURBO_SOL_FEE_RECEIVER;
 
     // ── 5. Assemble instructions ──
     const instructions: TransactionInstruction[] = [];
@@ -346,7 +347,10 @@ export class FlashBrain {
       ),
     );
 
-    // 5c. Flash Borrow (tokens arrive in sourceTokenAccount)
+    // 5c. Flash Borrow (tokens arrive in sourceTokenAccount).
+    // The borrow instruction index is tracked dynamically because the
+    // number of preceding instructions varies (MEV marker + ATA creation).
+    // Solend's flash repay references this index to verify atomicity.
     const borrowInstructionIndex = instructions.length;
     const flashBorrowIx = flashBorrowReserveLiquidityInstruction(
       new BN(borrowAmount.toString()),
