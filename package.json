@@ -1,15 +1,16 @@
 {
   "name": "mev-bot",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "type": "module",
   "author": "Jito Labs",
   "license": "Apache-2.0",
   "engines": {
-    "node": ">= 16.19 <17"
+    "node": ">= 18"
   },
   "scripts": {
     "prestart": "$npm_execpath run build",
-    "start": "node --max-old-space-size=16384 --max-semi-space-size=256 --trace-warnings build/src/bot.js",
+    "start": "node --max-old-space-size=16384 --max-semi-space-size=256 --trace-warnings build/src/index.js",
+    "start:legacy": "node --max-old-space-size=16384 --max-semi-space-size=256 --trace-warnings build/src/bot.js",
     "clean": "rimraf coverage build tmp",
     "prebuild": "npm run lint",
     "build": "tsc -p tsconfig.json",
@@ -19,7 +20,7 @@
   },
   "devDependencies": {
     "@types/convict": "^6.1.1",
-    "@types/node": "16",
+    "@types/node": "^18.0.0",
     "@types/pino": "^7.0.5",
     "@typescript-eslint/eslint-plugin": "^5.54.0",
     "@typescript-eslint/parser": "^5.54.0",
@@ -34,6 +35,7 @@
     "@coral-xyz/anchor": "^0.27.0",
     "@datastructures-js/priority-queue": "^6.2.0",
     "@datastructures-js/queue": "^4.2.3",
+    "@jup-ag/api": "^6.0.48",
     "@jup-ag/common": "^4.0.0-beta.16",
     "@jup-ag/core": "^4.0.0-beta.16",
     "@orca-so/whirlpools-sdk": "^0.8.2",
@@ -41,8 +43,9 @@
     "@raydium-io/raydium-sdk": "^1.3.0-beta.2",
     "@solana/buffer-layout": "^4.0.1",
     "@solana/buffer-layout-utils": "^0.2.0",
+    "@solana/spl-token": "^0.4.14",
     "@solana/spl-token-3": "npm:@solana/spl-token@~0.3",
-    "@solana/web3.js": "^1.73.3",
+    "@solana/web3.js": "^1.98.4",
     "@solendprotocol/solend-sdk": "^0.6.16",
     "agentkeepalive": "^4.3.0",
     "bn.js": "^5.2.1",
@@ -51,7 +54,7 @@
     "csv-stringify": "^6.3.2",
     "default-import": "^1.1.5",
     "dotenv": "^16.0.3",
-    "jito-ts": "^2.2.0",
+    "jito-ts": "^4.2.1",
     "jsbi": "^4.3.0",
     "node-fetch": "^3.3.0",
     "pino": "^8.11.0"
