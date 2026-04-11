@@ -80,6 +80,11 @@ const config = convict({
     doc: 'When true, bundles are simulated and logged but never broadcast',
     env: 'SIMULATION_MODE',
   },
+  dashboard_port: {
+    format: 'port',
+    default: 3000,
+    env: 'DASHBOARD_PORT',
+  },
 });
 
 config.validate({ allowed: 'strict' });

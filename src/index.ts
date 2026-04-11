@@ -36,6 +36,14 @@ import { preSimulationFilter } from './pre-simulation-filter.js';
 import { simulate } from './simulation.js';
 import { postSimulateFilter, BackrunnableTrade } from './post-simulation-filter.js';
 import { Timings } from './types.js';
+import {
+  formatLamportsAsSol,
+  isBotRunning,
+  isSimulationModeEnabled,
+  pushDashboardLog,
+  recordRealizedProfit,
+} from './dashboard-state.js';
+import { startDashboardServer } from './server.js';
 
 // ── Configuration ──────────────────────────────────────────────
 const PAYER_KEYPAIR_PATH = config.get('payer_keypair_path');
@@ -48,9 +56,6 @@ const payer = Keypair.fromSecretKey(
 
 /** Transaction base fees (≤3 sigs × 5 000 lamports) */
 const TXN_FEES_LAMPORTS = 15_000;
-
-/** When true, bundles are simulated and logged but never broadcast */
-const SIMULATION_MODE: boolean = config.get('simulation_mode');
 
 // ── FlashBrain instance ────────────────────────────────────────
 const flashBrain = new FlashBrain(connection, payer);
@@ -80,6 +85,7 @@ type TradeRecord = {
 };
 
 const bundlesInTransit = new Map<string, TradeRecord>();
+let dashboardPauseNoticeShown = false;
 
 /**
  * After CHECK_LANDED_DELAY_MS, check if our arb transaction actually landed.
@@ -97,6 +103,14 @@ async function processCompletedTrade(uuid: string) {
     .catch(() => false);
 
   trade.landed = landed;
+
+  if (trade.landed) {
+    const realizedProfit = BigInt(trade.expectedProfit);
+    recordRealizedProfit(realizedProfit);
+    pushDashboardLog(`Trade landed: +${formatLamportsAsSol(realizedProfit)} SOL.`);
+  } else {
+    pushDashboardLog(`Trade ${uuid} did not land.`);
+  }
 
   stringifier.write({
     timestamp: Date.now(),
@@ -154,6 +168,7 @@ async function isBundleSafe(
           { err: txResult.err },
           'simulateBundle: txn error, dropping bundle',
         );
+        pushDashboardLog('simulateBundle rejected: transaction error.');
         return false;
       }
     }
@@ -165,6 +180,7 @@ async function isBundleSafe(
       logger.info(
         `simulateBundle: gross profit (${grossProfitLamports}) below cost floor (${costFloor}), dropping`,
       );
+      pushDashboardLog('simulateBundle rejected: profit below cost floor.');
       return false;
     }
 
@@ -174,6 +190,7 @@ async function isBundleSafe(
     return true;
   } catch (e) {
     logger.error(e, 'simulateBundle failed');
+    pushDashboardLog('simulateBundle failed unexpectedly.');
     return false;
   }
 }
@@ -185,9 +202,11 @@ async function isBundleSafe(
  * then uses FlashBrain to build profitable flash-loan arb bundles.
  */
 async function run(): Promise<void> {
+  const startupMode = isSimulationModeEnabled() ? 'SIMULATION' : 'PRODUCTION';
   logger.info(
-    `Starting Flash Searcher (2026) — mode: ${SIMULATION_MODE ? 'SIMULATION' : 'PRODUCTION'}`,
+    `Starting Flash Searcher (2026) — mode: ${startupMode}`,
   );
+  pushDashboardLog(`Searcher started in ${startupMode} mode.`);
 
   // Wire bundle-result listener
   searcherClient.onBundleResult(
@@ -200,12 +219,14 @@ async function run(): Promise<void> {
         logger.info(
           `Bundle ${bundleId} accepted in slot ${bundleResult.accepted.slot}`,
         );
+        pushDashboardLog(`Bundle ${bundleId} accepted in slot ${bundleResult.accepted.slot}.`);
         const trade = bundlesInTransit.get(bundleId);
         if (trade) trade.accepted += 1;
       }
 
       if (isRejected) {
         logger.info(bundleResult.rejected, `Bundle ${bundleId} rejected:`);
+        pushDashboardLog(`Bundle ${bundleId} rejected.`);
         const trade = bundlesInTransit.get(bundleId);
         if (trade) {
           trade.rejected = true;
@@ -223,6 +244,7 @@ async function run(): Promise<void> {
     },
     (error) => {
       logger.error(error, 'bundle result stream error');
+      pushDashboardLog('Bundle result stream error.');
     },
   );
 
@@ -233,10 +255,26 @@ async function run(): Promise<void> {
   const backrunnableTrades = postSimulateFilter(simulations);
 
   for await (const trade of backrunnableTrades) {
+    if (!isBotRunning()) {
+      if (!dashboardPauseNoticeShown) {
+        dashboardPauseNoticeShown = true;
+        logger.info('Bot paused from dashboard; incoming opportunities are ignored.');
+        pushDashboardLog('Bot paused. Tap START BOT to resume processing.');
+      }
+      continue;
+    }
+
+    if (dashboardPauseNoticeShown) {
+      dashboardPauseNoticeShown = false;
+      logger.info('Bot resumed from dashboard controls.');
+      pushDashboardLog('Bot resumed from dashboard controls.');
+    }
+
     try {
       await handleTrade(trade);
     } catch (e) {
       logger.error(e, 'Error handling trade');
+      pushDashboardLog('Error handling trade in pipeline.');
     }
   }
 }
@@ -300,6 +338,7 @@ async function handleTrade(trade: BackrunnableTrade): Promise<void> {
 
   if (!safe) {
     logger.info('Bundle failed safety check, skipping');
+    pushDashboardLog('Bundle failed safety check.');
     return;
   }
 
@@ -309,6 +348,7 @@ async function handleTrade(trade: BackrunnableTrade): Promise<void> {
     logger.info(
       `Gross profit (${grossProfitLamports}) < total costs (${totalCosts}), not broadcasting`,
     );
+    pushDashboardLog('Trade skipped: gross profit below total cost.');
     return;
   }
 
@@ -316,13 +356,16 @@ async function handleTrade(trade: BackrunnableTrade): Promise<void> {
   const now = Date.now();
   const arbTxnSignature = bs58.encode(arbTxn.signatures[0]);
 
-  if (SIMULATION_MODE) {
+  if (isSimulationModeEnabled()) {
     logger.info(
       `[SIMULATION] Would send bundle backrunning ${bs58.encode(victimTxn.signatures[0])}` +
         ` | borrow ${borrowAmount} | gross profit ${grossProfitLamports} lamports` +
         ` | tip ${tipLamports} lamports | input ${inputMint} → ${outputMint}`,
     );
     logger.info('✅ Simulation successful — bundle validated but NOT broadcast (SIMULATION_MODE=true)');
+    pushDashboardLog(
+      `Dry Run: validated trade at +${formatLamportsAsSol(grossProfitLamports)} SOL (not broadcast).`,
+    );
     return;
   }
 
@@ -339,8 +382,10 @@ async function handleTrade(trade: BackrunnableTrade): Promise<void> {
         logger.error(
           'Error sending bundle: Bundle Dropped, no connected leader up soon.',
         );
+        pushDashboardLog('Bundle dropped: no connected Jito leader soon.');
       } else {
         logger.error(error, 'Error sending bundle');
+        pushDashboardLog('Error sending bundle to Jito.');
       }
       return null;
     });
@@ -355,12 +400,16 @@ async function handleTrade(trade: BackrunnableTrade): Promise<void> {
 
   if (!bundleId) {
     logger.error('Failed to extract bundleId from sendBundle result');
+    pushDashboardLog('Failed to parse bundle id after sendBundle.');
     return;
   }
 
   logger.info(
     `Bundle ${bundleId} sent, backrunning ${bs58.encode(victimTxn.signatures[0])}` +
       ` | gross profit ${grossProfitLamports} lamports | tip ${tipLamports} lamports`,
+  );
+  pushDashboardLog(
+    `Live mode: bundle ${bundleId} sent (+${formatLamportsAsSol(grossProfitLamports)} SOL estimated).`,
   );
 
   const tradeTimings: Timings = {
@@ -395,4 +444,13 @@ async function handleTrade(trade: BackrunnableTrade): Promise<void> {
 }
 
 // ── Boot ───────────────────────────────────────────────────────
-await run();
+async function boot(): Promise<void> {
+  await startDashboardServer();
+  await run();
+}
+
+void boot().catch((error) => {
+  logger.error(error, 'Fatal error in searcher runtime');
+  pushDashboardLog('Fatal runtime error. Searcher shutting down.');
+  process.exit(1);
+});

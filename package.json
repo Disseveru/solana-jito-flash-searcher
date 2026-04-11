@@ -20,6 +20,7 @@
   },
   "devDependencies": {
     "@types/convict": "^6.1.1",
+    "@types/express": "^5.0.6",
     "@types/node": "^18.0.0",
     "@types/pino": "^7.0.5",
     "@typescript-eslint/eslint-plugin": "^5.54.0",
@@ -54,9 +55,11 @@
     "csv-stringify": "^6.3.2",
     "default-import": "^1.1.5",
     "dotenv": "^16.0.3",
+    "express": "^5.2.1",
     "jito-ts": "^4.2.1",
     "jsbi": "^4.3.0",
     "node-fetch": "^3.3.0",
-    "pino": "^8.11.0"
+    "pino": "^8.11.0",
+    "socket.io": "^4.8.3"
   }
 }
