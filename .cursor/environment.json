@@ -1,0 +1,5 @@
+{
+  "$schema": "https://cursor.com/schemas/environment.schema.json",
+  "name": "mev-bot",
+  "install": "npm ci --include=dev"
+}
