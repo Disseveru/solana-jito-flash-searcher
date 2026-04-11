@@ -7,9 +7,9 @@
  * Key changes from the legacy bot.ts:
  *   • Uses FlashBrain (Jupiter v6) instead of the old price/routing logic.
  *   • Every transaction carries a jitodontfront read-only prefix for MEV protection.
- *   • Dynamic Jito tip: 25 % of net profit (in SOL), floored at MIN_TIP_LAMPORTS.
- *   • Bundles are guarded by simulateBundle — if netProfit < flashLoanFee + tip
- *     the bundle is silently dropped.
+ *   • Dynamic Jito tip: TIP_PERCENT% of gross profit (in SOL), floored at MIN_TIP_LAMPORTS.
+ *   • Bundles are guarded by simulateBundle — if any txn errors or
+ *     grossProfit < flashLoanFee + tip + txnFees the bundle is silently dropped.
  */
 
 import * as fs from 'fs';
@@ -127,10 +127,12 @@ async function processCompletedTrade(uuid: string) {
 // ── Safety: simulateBundle gate ────────────────────────────────
 /**
  * Simulates a Jito bundle and returns true only when ALL
- * transactions succeed and the net profit exceeds the cost floor.
+ * transactions succeed and the gross profit exceeds the cost floor
+ * (flashLoanFee + tip + base transaction fees).
  */
 async function isBundleSafe(
   bundle: VersionedTransaction[],
+  grossProfitLamports: bigint,
   flashLoanFeeLamports: bigint,
   tipLamports: bigint,
 ): Promise<boolean> {
@@ -156,13 +158,18 @@ async function isBundleSafe(
       }
     }
 
-    // The cost floor the arb must exceed to be worth sending
+    // Enforce the cost floor: gross profit must cover all costs
     const costFloor = flashLoanFeeLamports + tipLamports + BigInt(TXN_FEES_LAMPORTS);
 
-    // Re-check profitability after simulation in case on-chain state changed
-    // (FlashBrain only checks netProfit > TXN_FEES; here we check the full cost floor)
+    if (grossProfitLamports < costFloor) {
+      logger.info(
+        `simulateBundle: gross profit (${grossProfitLamports}) below cost floor (${costFloor}), dropping`,
+      );
+      return false;
+    }
+
     logger.debug(
-      `simulateBundle passed – cost floor ${costFloor} lamports`,
+      `simulateBundle passed – gross profit ${grossProfitLamports}, cost floor ${costFloor} lamports`,
     );
     return true;
   } catch (e) {
@@ -277,7 +284,7 @@ async function handleTrade(trade: BackrunnableTrade): Promise<void> {
   const {
     transaction: arbTxn,
     flashLoanFeeLamports,
-    expectedProfitLamports,
+    grossProfitLamports,
     tipLamports,
   } = arbResult;
 
@@ -286,6 +293,7 @@ async function handleTrade(trade: BackrunnableTrade): Promise<void> {
 
   const safe = await isBundleSafe(
     bundle,
+    grossProfitLamports,
     flashLoanFeeLamports,
     tipLamports,
   );
@@ -295,10 +303,11 @@ async function handleTrade(trade: BackrunnableTrade): Promise<void> {
     return;
   }
 
-  // Final profitability gate: netProfit must exceed fees + tip
-  if (expectedProfitLamports < flashLoanFeeLamports + tipLamports) {
+  // Final profitability gate: gross profit must cover all costs
+  const totalCosts = flashLoanFeeLamports + tipLamports + BigInt(TXN_FEES_LAMPORTS);
+  if (grossProfitLamports < totalCosts) {
     logger.info(
-      `Profit (${expectedProfitLamports}) < costs (${flashLoanFeeLamports + tipLamports}), not broadcasting`,
+      `Gross profit (${grossProfitLamports}) < total costs (${totalCosts}), not broadcasting`,
     );
     return;
   }
@@ -310,7 +319,7 @@ async function handleTrade(trade: BackrunnableTrade): Promise<void> {
   if (SIMULATION_MODE) {
     logger.info(
       `[SIMULATION] Would send bundle backrunning ${bs58.encode(victimTxn.signatures[0])}` +
-        ` | borrow ${borrowAmount} | profit ${expectedProfitLamports} lamports` +
+        ` | borrow ${borrowAmount} | gross profit ${grossProfitLamports} lamports` +
         ` | tip ${tipLamports} lamports | input ${inputMint} → ${outputMint}`,
     );
     return;
@@ -350,7 +359,7 @@ async function handleTrade(trade: BackrunnableTrade): Promise<void> {
 
   logger.info(
     `Bundle ${bundleId} sent, backrunning ${bs58.encode(victimTxn.signatures[0])}` +
-      ` | profit ${expectedProfitLamports} lamports | tip ${tipLamports} lamports`,
+      ` | gross profit ${grossProfitLamports} lamports | tip ${tipLamports} lamports`,
   );
 
   const tradeTimings: Timings = {
@@ -371,7 +380,7 @@ async function handleTrade(trade: BackrunnableTrade): Promise<void> {
     errorContent: null,
     landed: false,
     borrowAmount: borrowAmount.toString(),
-    expectedProfit: expectedProfitLamports.toString(),
+    expectedProfit: grossProfitLamports.toString(),
     tipLamports: tipLamports.toString(),
     inputMint,
     outputMint,

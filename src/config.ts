@@ -71,7 +71,7 @@ const config = convict({
   },
   tip_percent: {
     format: Number,
-    default: 50,
+    default: 25,
     env: 'TIP_PERCENT',
   },
   simulation_mode: {

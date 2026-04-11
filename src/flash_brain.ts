@@ -16,6 +16,12 @@ import {
 } from '@jup-ag/api';
 import { BN } from 'bn.js';
 import {
+  getAssociatedTokenAddressSync,
+  createAssociatedTokenAccountIdempotentInstruction,
+  createCloseAccountInstruction,
+  NATIVE_MINT,
+} from '@solana/spl-token';
+import {
   SOLEND_PRODUCTION_PROGRAM_ID,
   flashBorrowReserveLiquidityInstruction,
   flashRepayReserveLiquidityInstruction,
@@ -31,6 +37,7 @@ import {
   SOLEND_TURBO_USDC_RESERVE,
   BASE_MINTS_OF_INTEREST,
 } from './constants.js';
+import { config } from './config.js';
 import { logger } from './logger.js';
 
 // 8 official Jito tip accounts
@@ -55,11 +62,11 @@ const JITO_MEV_PROTECTION_ACCOUNT = new PublicKey(
   'HWEoBxYs7ssKuudEjzjmpfJVX7Dvi7wescFsVx2L5yoY',
 );
 
-/** Tip percentage of net profit sent to Jito validators */
-const TIP_PERCENT = 25;
+/** Tip percentage read from config (default 25, configurable via TIP_PERCENT env var) */
+const TIP_PERCENT: number = config.get('tip_percent');
 
-/** Minimum tip in lamports (floor) */
-const MIN_TIP_LAMPORTS = 10_000;
+/** Minimum tip in lamports read from config (configurable via MIN_TIP_LAMPORTS env var) */
+const MIN_TIP_LAMPORTS: number = config.get('min_tip_lamports');
 
 /** Transaction base fees (3 signatures × 5,000 lamports) */
 const TXN_FEES_LAMPORTS = 15_000;
@@ -68,9 +75,10 @@ export interface FlashArbResult {
   transaction: VersionedTransaction;
   borrowAmount: bigint;
   flashLoanFeeLamports: bigint;
-  expectedProfitLamports: bigint;
+  grossProfitLamports: bigint;
   tipLamports: bigint;
-  quote: QuoteResponse;
+  forwardQuote: QuoteResponse;
+  returnQuote: QuoteResponse;
 }
 
 /**
@@ -91,9 +99,36 @@ function jupInstructionToTransactionInstruction(
 }
 
 /**
+ * Appends all Jupiter swap-related instructions (setup, compute budget,
+ * swap, cleanup) from a SwapInstructionsResponse to the instruction array.
+ */
+function appendJupiterSwapInstructions(
+  instructions: TransactionInstruction[],
+  swapIx: SwapInstructionsResponse,
+): void {
+  for (const ix of swapIx.setupInstructions) {
+    instructions.push(jupInstructionToTransactionInstruction(ix));
+  }
+  for (const ix of swapIx.computeBudgetInstructions) {
+    instructions.push(jupInstructionToTransactionInstruction(ix));
+  }
+  instructions.push(
+    jupInstructionToTransactionInstruction(swapIx.swapInstruction),
+  );
+  if (swapIx.cleanupInstruction) {
+    instructions.push(
+      jupInstructionToTransactionInstruction(swapIx.cleanupInstruction),
+    );
+  }
+}
+
+/**
  * FlashBrain uses the Jupiter v6 API to find backrun arbitrage
  * opportunities and build VersionedTransactions that atomically
- * execute: [Flash Borrow → Arb Swap → Flash Repay → Jito Tip].
+ * execute: [Flash Borrow → Forward Swap → Return Swap → Flash Repay → Jito Tip].
+ *
+ * The round-trip (inputMint → outputMint → inputMint) ensures the
+ * Solend flash loan is repaid in the same mint that was borrowed.
  *
  * No RPC polling is required—quote data comes directly from the
  * Jupiter aggregator's local AMM map.
@@ -150,16 +185,21 @@ export class FlashBrain {
 
   /**
    * Fetches the deserialized swap instructions from Jupiter v6.
+   *
+   * @param wrapAndUnwrapSol When false, Jupiter uses the standard wSOL ATA
+   *   instead of creating a temporary account. Set to false when the
+   *   wSOL ATA is managed externally (e.g. by a flash loan).
    */
   private async fetchSwapInstructions(
     quote: QuoteResponse,
+    wrapAndUnwrapSol = true,
   ): Promise<SwapInstructionsResponse | null> {
     try {
       return await this.jupiterApi.swapInstructionsPost({
         swapRequest: {
           quoteResponse: quote,
           userPublicKey: this.payer.publicKey.toBase58(),
-          wrapAndUnwrapSol: true,
+          wrapAndUnwrapSol,
           dynamicComputeUnitLimit: true,
           dynamicSlippage: true,
         },
@@ -171,9 +211,6 @@ export class FlashBrain {
   }
 
   /**
-   * Calculates whether a flash-loan arbitrage is profitable by
-   * comparing the borrow→swap→repay profit against fees + tip.
-   *
    * Returns the flash loan fee in lamports for the given `borrowAmount`.
    */
   calculateFlashLoanFee(borrowAmount: bigint): bigint {
@@ -181,12 +218,17 @@ export class FlashBrain {
   }
 
   /**
-   * Builds an atomic VersionedTransaction that performs:
+   * Builds an atomic VersionedTransaction that performs a round-trip
+   * flash-loan arbitrage:
+   *
    *   1. MEV-protection marker (jitodontfront read-only prefix)
-   *   2. Flash Borrow from Solend
-   *   3. Arb swap via Jupiter v6 instructions
-   *   4. Flash Repay to Solend
-   *   5. Dynamic Jito tip (25% of net profit)
+   *   2. Ensure inputMint ATA exists
+   *   3. Flash Borrow from Solend (inputMint)
+   *   4. Forward swap via Jupiter (inputMint → outputMint)
+   *   5. Return swap via Jupiter (outputMint → inputMint)
+   *   6. Flash Repay to Solend (inputMint + fee)
+   *   7. Close wSOL ATA (if SOL, to recover rent)
+   *   8. Dynamic Jito tip (TIP_PERCENT% of gross profit)
    *
    * @param inputMint  The mint to borrow and repay (SOL or USDC).
    * @param outputMint The intermediate mint the arb swaps through.
@@ -200,26 +242,37 @@ export class FlashBrain {
     borrowAmount: bigint,
     recentBlockhash: string,
   ): Promise<FlashArbResult | null> {
-    // ── 1. Get Jupiter quote (round-trip: inputMint → outputMint → inputMint)
-    const quote = await this.fetchQuote(
+    // ── 1. Get Jupiter quotes for the round-trip ──
+    // Forward leg: inputMint → outputMint (buy the cheap token)
+    const forwardQuote = await this.fetchQuote(
       inputMint,
       outputMint,
       borrowAmount,
       50,
     );
-    if (!quote) return null;
+    if (!forwardQuote) return null;
 
-    const outAmount = BigInt(quote.outAmount);
-    if (outAmount <= borrowAmount) {
+    // Return leg: outputMint → inputMint (sell back at fair price)
+    const forwardOutAmount = BigInt(forwardQuote.outAmount);
+    const returnQuote = await this.fetchQuote(
+      outputMint,
+      inputMint,
+      forwardOutAmount,
+      50,
+    );
+    if (!returnQuote) return null;
+
+    const returnAmount = BigInt(returnQuote.outAmount);
+    if (returnAmount <= borrowAmount) {
       logger.debug(
-        'FlashBrain: quote outAmount <= borrowAmount, no arb opportunity',
+        'FlashBrain: round-trip returnAmount <= borrowAmount, no arb opportunity',
       );
       return null;
     }
 
-    // ── 2. Calculate profitability
+    // ── 2. Calculate profitability ──
+    const grossProfit = returnAmount - borrowAmount;
     const flashLoanFee = this.calculateFlashLoanFee(borrowAmount);
-    const grossProfit = outAmount - borrowAmount;
     const tipLamports = this.calculateTip(grossProfit);
     const netProfit = grossProfit - flashLoanFee - tipLamports;
 
@@ -230,11 +283,18 @@ export class FlashBrain {
       return null;
     }
 
-    // ── 3. Fetch swap instructions from Jupiter
-    const swapIxResponse = await this.fetchSwapInstructions(quote);
-    if (!swapIxResponse) return null;
+    // ── 3. Fetch swap instructions for both legs ──
+    // wrapAndUnwrapSol = false so Jupiter uses the standard ATA for wSOL,
+    // matching the account Solend flash-borrows into / repays from.
+    const forwardSwapIx = await this.fetchSwapInstructions(forwardQuote, false);
+    if (!forwardSwapIx) return null;
 
-    // ── 4. Determine Solend flash loan accounts
+    const returnSwapIx = await this.fetchSwapInstructions(returnQuote, false);
+    if (!returnSwapIx) return null;
+
+    // ── 4. Determine Solend flash loan accounts ──
+    const isSOL =
+      inputMint === BASE_MINTS_OF_INTEREST.SOL.toBase58();
     const isUSDC =
       inputMint === BASE_MINTS_OF_INTEREST.USDC.toBase58();
     const solendReserve = isUSDC
@@ -247,9 +307,16 @@ export class FlashBrain {
       ? SOLEND_TURBO_USDC_FEE_RECEIVER
       : SOLEND_TURBO_SOL_FEE_RECEIVER;
 
-    // The destination token account for the borrowed liquidity
-    // (Jupiter will handle wrapping/unwrapping SOL)
-    const sourceTokenAccount = this.payer.publicKey;
+    // Derive the correct SPL token account (ATA) for the borrowed mint.
+    // Solend flash borrow/repay require an SPL token account, not a
+    // system account. For SOL this is the wSOL ATA; for USDC the USDC ATA.
+    const inputMintPubkey = isSOL
+      ? NATIVE_MINT
+      : new PublicKey(inputMint);
+    const sourceTokenAccount = getAssociatedTokenAddressSync(
+      inputMintPubkey,
+      this.payer.publicKey,
+    );
 
     // ── 5. Assemble instructions ──
     const instructions: TransactionInstruction[] = [];
@@ -269,7 +336,18 @@ export class FlashBrain {
       }),
     );
 
-    // 5b. Flash Borrow
+    // 5b. Ensure the inputMint ATA exists (idempotent — no-op if it already does)
+    instructions.push(
+      createAssociatedTokenAccountIdempotentInstruction(
+        this.payer.publicKey,
+        sourceTokenAccount,
+        this.payer.publicKey,
+        inputMintPubkey,
+      ),
+    );
+
+    // 5c. Flash Borrow (tokens arrive in sourceTokenAccount)
+    const borrowInstructionIndex = instructions.length;
     const flashBorrowIx = flashBorrowReserveLiquidityInstruction(
       new BN(borrowAmount.toString()),
       solendLiquidity,
@@ -280,34 +358,16 @@ export class FlashBrain {
     );
     instructions.push(flashBorrowIx);
 
-    // 5c. Setup instructions from Jupiter (ATA creation, etc.)
-    for (const ix of swapIxResponse.setupInstructions) {
-      instructions.push(jupInstructionToTransactionInstruction(ix));
-    }
+    // 5d. Forward swap: inputMint → outputMint
+    appendJupiterSwapInstructions(instructions, forwardSwapIx);
 
-    // 5d. Compute budget instructions from Jupiter
-    for (const ix of swapIxResponse.computeBudgetInstructions) {
-      instructions.push(jupInstructionToTransactionInstruction(ix));
-    }
+    // 5e. Return swap: outputMint → inputMint
+    appendJupiterSwapInstructions(instructions, returnSwapIx);
 
-    // 5e. The main swap instruction
-    instructions.push(
-      jupInstructionToTransactionInstruction(swapIxResponse.swapInstruction),
-    );
-
-    // 5f. Cleanup instruction (if any)
-    if (swapIxResponse.cleanupInstruction) {
-      instructions.push(
-        jupInstructionToTransactionInstruction(
-          swapIxResponse.cleanupInstruction,
-        ),
-      );
-    }
-
-    // 5g. Flash Repay (borrowInstructionIndex = 1 since borrow is at index 1)
+    // 5f. Flash Repay (borrowInstructionIndex is tracked dynamically)
     const flashRepayIx = flashRepayReserveLiquidityInstruction(
       new BN(borrowAmount.toString()),
-      1, // index of the borrow instruction in this transaction
+      borrowInstructionIndex,
       sourceTokenAccount,
       solendLiquidity,
       solendFeeReceiver,
@@ -319,7 +379,18 @@ export class FlashBrain {
     );
     instructions.push(flashRepayIx);
 
-    // 5h. Jito tip — 25% of net profit
+    // 5g. Close wSOL ATA after repay to recover rent + convert remaining wSOL → native SOL
+    if (isSOL) {
+      instructions.push(
+        createCloseAccountInstruction(
+          sourceTokenAccount,
+          this.payer.publicKey,
+          this.payer.publicKey,
+        ),
+      );
+    }
+
+    // 5h. Jito tip — TIP_PERCENT% of gross profit
     const tipIx = SystemProgram.transfer({
       fromPubkey: this.payer.publicKey,
       toPubkey: this.getRandomTipAccount(),
@@ -327,14 +398,19 @@ export class FlashBrain {
     });
     instructions.push(tipIx);
 
-    // ── 6. Resolve address lookup tables from Jupiter ──
+    // ── 6. Resolve address lookup tables from both swaps ──
+    const allLookupAddresses = new Set<string>();
+    for (const addr of forwardSwapIx.addressLookupTableAddresses ?? []) {
+      allLookupAddresses.add(addr);
+    }
+    for (const addr of returnSwapIx.addressLookupTableAddresses ?? []) {
+      allLookupAddresses.add(addr);
+    }
+
     const lookupTableAccounts: AddressLookupTableAccount[] = [];
-    if (
-      swapIxResponse.addressLookupTableAddresses &&
-      swapIxResponse.addressLookupTableAddresses.length > 0
-    ) {
+    if (allLookupAddresses.size > 0) {
       const lookupTableResults = await Promise.all(
-        swapIxResponse.addressLookupTableAddresses.map((addr) =>
+        Array.from(allLookupAddresses).map((addr) =>
           this.connection.getAddressLookupTable(new PublicKey(addr)),
         ),
       );
@@ -374,14 +450,15 @@ export class FlashBrain {
       transaction,
       borrowAmount,
       flashLoanFeeLamports: flashLoanFee,
-      expectedProfitLamports: netProfit,
+      grossProfitLamports: grossProfit,
       tipLamports,
-      quote,
+      forwardQuote,
+      returnQuote,
     };
   }
 
   /**
-   * Calculates the dynamic Jito tip: 25% of gross profit,
+   * Calculates the dynamic Jito tip: TIP_PERCENT% of gross profit,
    * floored at MIN_TIP_LAMPORTS.
    */
   private calculateTip(grossProfit: bigint): bigint {

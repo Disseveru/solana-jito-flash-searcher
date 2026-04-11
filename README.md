@@ -16,8 +16,8 @@ The Flash Searcher monitors the Jito mempool for large DEX trades, detects tempo
    - **Flash Borrow** — Borrow SOL or USDC from Solend (30 bps fee).
    - **Arb Swap** — Execute the Jupiter-routed swap.
    - **Flash Repay** — Repay the loan + fee in the same transaction.
-   - **Jito Tip** — Dynamic tip of 25% of net profit to a random Jito validator tip account.
-5. **Safety Gate** — Every bundle is simulated with `simulateBundle` before broadcast. If `netProfit < flashLoanFee + tip`, the bundle is silently dropped.
+   - **Jito Tip** — Dynamic tip of TIP_PERCENT% of gross profit (`returnAmount - borrowAmount`) to a random Jito validator tip account; flash loan fees are accounted for separately when evaluating final profitability.
+5. **Safety Gate** — Every bundle is simulated with `simulateBundle` before broadcast. If the gross profit does not cover the flash loan fee, Jito tip, and base transaction fees, the bundle is silently dropped.
 
 ## Tech Stack
 
