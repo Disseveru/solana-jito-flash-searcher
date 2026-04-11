@@ -1,5 +1,5 @@
 /**
- * Modernised searcher entry-point (2026).
+ * Modernized searcher entry-point (2026).
  *
  * Pipeline:
  *   mempool → pre-filter → simulate → post-filter → FlashBrain arb → send bundle
@@ -155,8 +155,9 @@ async function isBundleSafe(
 
     // The cost floor the arb must exceed to be worth sending
     const costFloor = flashLoanFeeLamports + tipLamports + BigInt(TXN_FEES_LAMPORTS);
-    // We already ensured netProfit > costFloor in FlashBrain, but
-    // re-check after simulation in case state changed.
+
+    // Re-check profitability after simulation in case on-chain state changed
+    // (FlashBrain only checks netProfit > TXN_FEES; here we check the full cost floor)
     logger.debug(
       `simulateBundle passed – cost floor ${costFloor} lamports`,
     );

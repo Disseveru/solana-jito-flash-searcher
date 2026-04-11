@@ -249,11 +249,7 @@ export class FlashBrain {
 
     // The destination token account for the borrowed liquidity
     // (Jupiter will handle wrapping/unwrapping SOL)
-    const sourceTokenAccount = new PublicKey(
-      isUSDC
-        ? this.payer.publicKey.toBase58() // ATA resolved by Jupiter setup ixns
-        : this.payer.publicKey.toBase58(),
-    );
+    const sourceTokenAccount = this.payer.publicKey;
 
     // ── 5. Assemble instructions ──
     const instructions: TransactionInstruction[] = [];
@@ -350,6 +346,8 @@ export class FlashBrain {
     }
 
     // ── 7. Build the VersionedTransaction ──
+    // Solana's maximum serialized transaction size is 1232 bytes
+    const SOLANA_MAX_TX_SIZE = 1232;
     const message = new TransactionMessage({
       payerKey: this.payer.publicKey,
       recentBlockhash,
@@ -360,7 +358,7 @@ export class FlashBrain {
 
     try {
       const serialized = transaction.serialize();
-      if (serialized.length > 1232) {
+      if (serialized.length > SOLANA_MAX_TX_SIZE) {
         logger.error(
           `FlashBrain: transaction too large (${serialized.length} bytes)`,
         );
