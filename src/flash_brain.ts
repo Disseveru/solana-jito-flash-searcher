@@ -168,6 +168,15 @@ export class FlashBrain {
     slippageBps = 50,
   ): Promise<QuoteResponse | null> {
     try {
+      // Guard: Jupiter API `amount` is typed as number. Reject amounts that
+      // exceed Number.MAX_SAFE_INTEGER to prevent silent precision loss.
+      if (amountLamports > BigInt(Number.MAX_SAFE_INTEGER)) {
+        logger.error(
+          `FlashBrain: amount ${amountLamports} exceeds MAX_SAFE_INTEGER, skipping`,
+        );
+        return null;
+      }
+
       const quote = await this.jupiterApi.quoteGet({
         inputMint,
         outputMint,
