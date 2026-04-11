@@ -49,6 +49,9 @@ const payer = Keypair.fromSecretKey(
 /** Transaction base fees (≤3 sigs × 5 000 lamports) */
 const TXN_FEES_LAMPORTS = 15_000;
 
+/** When true, bundles are simulated and logged but never broadcast */
+const SIMULATION_MODE: boolean = config.get('simulation_mode');
+
 // ── FlashBrain instance ────────────────────────────────────────
 const flashBrain = new FlashBrain(connection, payer);
 
@@ -175,7 +178,9 @@ async function isBundleSafe(
  * then uses FlashBrain to build profitable flash-loan arb bundles.
  */
 async function run(): Promise<void> {
-  logger.info('Starting modernised Flash Searcher (2026)');
+  logger.info(
+    `Starting Flash Searcher (2026) — mode: ${SIMULATION_MODE ? 'SIMULATION' : 'PRODUCTION'}`,
+  );
 
   // Wire bundle-result listener
   searcherClient.onBundleResult(
@@ -298,9 +303,18 @@ async function handleTrade(trade: BackrunnableTrade): Promise<void> {
     return;
   }
 
-  // ── Send bundle ──
+  // ── Send bundle (or log in simulation mode) ──
   const now = Date.now();
   const arbTxnSignature = bs58.encode(arbTxn.signatures[0]);
+
+  if (SIMULATION_MODE) {
+    logger.info(
+      `[SIMULATION] Would send bundle backrunning ${bs58.encode(victimTxn.signatures[0])}` +
+        ` | borrow ${borrowAmount} | profit ${expectedProfitLamports} lamports` +
+        ` | tip ${tipLamports} lamports | input ${inputMint} → ${outputMint}`,
+    );
+    return;
+  }
 
   const jitoBundle = new JitoBundle(bundle, 5);
 
