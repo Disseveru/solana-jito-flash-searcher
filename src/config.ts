@@ -71,8 +71,14 @@ const config = convict({
   },
   tip_percent: {
     format: Number,
-    default: 50,
+    default: 25,
     env: 'TIP_PERCENT',
+  },
+  simulation_mode: {
+    format: Boolean,
+    default: false,
+    doc: 'When true, bundles are simulated and logged but never broadcast',
+    env: 'SIMULATION_MODE',
   },
 });
 

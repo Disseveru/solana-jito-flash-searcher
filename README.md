@@ -1,99 +1,88 @@
-# ⚠️ This repo is no longer maintained. It is not intended to be used in production for MEV ⚠️
+# Solana Jito Flash Searcher
 
-# Jito Backrun Arb Bot
-
-The Jito Backrun Arb Bot is designed to perform backrun arbs on the Solana blockchain, specifically targeting SOL and USDC trades. It utilizes the Jito mempool and bundles to backrun trades, focusing on circular arbitrage strategies. The bot supports multiple platforms including Raydium, Raydium CLMM, Orca Whirlpools, and Orca AMM pools.
+> **2026 Edition** — A high-performance MEV backrun arbitrage bot for Solana, powered by **Jupiter v6**, **Jito-ts 4.2.1**, and **Solend Flash Loans**.
 
 ## Overview
 
-Backrunning in the context of decentralized finance (DeFi) is a strategy that takes advantage of the public nature of blockchain transactions. When a large trade is made on a decentralized exchange (DEX), it can cause a temporary imbalance in the price of the traded assets. A backrun is a type of arbitrage where a trader, or in this case a bot, sees this incoming trade and quickly places their own right after it, aiming to profit from the price imbalance.
+The Flash Searcher monitors the Jito mempool for large DEX trades, detects temporary price imbalances, and atomically executes flash-loan-funded arbitrage transactions to profit from the dislocation — all within a single Solana transaction.
 
-The Jito Backrun Arb Bot implements this strategy in three main steps:
+### How It Works
 
-1. **Identifying trades to backrun**: The bot monitors the mempool for large incoming trades that could cause a significant price imbalance.
+1. **Mempool Monitoring** — Subscribes to the Jito Block Engine for real-time pending transactions across Raydium, Raydium CLMM, Orca Whirlpools, and Orca AMM.
+2. **Trade Detection** — Simulates incoming transactions with `simulateBundle` to determine trade direction, size, and affected token accounts.
+3. **Flash Brain (Jupiter v6)** — The new `FlashBrain` module queries the Jupiter v6 aggregator for optimal multi-hop swap routes. No local RPC polling required.
+4. **Atomic Execution** — Each arb transaction is assembled as a single `VersionedTransaction`:
+   - **MEV Protection** — `jitodontfront` read-only account prefix prevents front-running.
+   - **Flash Borrow** — Borrow SOL or USDC from Solend (30 bps fee).
+   - **Arb Swap** — Execute the Jupiter-routed swap.
+   - **Flash Repay** — Repay the loan + fee in the same transaction.
+   - **Jito Tip** — Dynamic tip of TIP_PERCENT% of gross profit (`returnAmount - borrowAmount`) to a random Jito validator tip account; flash loan fees are accounted for separately when evaluating final profitability.
+5. **Safety Gate** — Every bundle is simulated with `simulateBundle` before broadcast. If the gross profit does not cover the flash loan fee, Jito tip, and base transaction fees, the bundle is silently dropped.
 
-2. **Finding a profitable backrun arbitrage route**: The bot calculates potential profits from various arbitrage routes that could correct the price imbalance.
+## Tech Stack
 
-3. **Executing the arbitrage transaction**: The bot places its own trade immediately after the large trade is executed, then completes the arbitrage route to return the market closer to its original balance.
+| Component | Version | Purpose |
+|-----------|---------|---------|
+| `jito-ts` | 4.2.1 | Block Engine SDK — mempool subscriptions, bundle sending, Geyser |
+| `@jup-ag/api` | 6.x | Jupiter v6 — quote aggregation, swap instructions |
+| `@solana/web3.js` | 1.98+ | Solana RPC, transactions, address lookup tables |
+| `@solana/spl-token` | 0.4+ | SPL Token operations |
+| `@solendprotocol/solend-sdk` | 0.6+ | Flash loan borrow / repay instructions |
+| Node.js | ≥ 18 | Runtime |
 
-![Backrun Strategy Diagram](https://showme.redstarplugin.com/d/ZeHqaNDh)
+## Quick Start
 
-## Detailed Explanation
+### Prerequisites
 
-### Identifying Trades to Backrun
+- **Node.js ≥ 18** and **npm** (or yarn)
+- A Jito Block Engine auth keypair ([Get one here](https://jito-labs.gitbook.io/mev/searcher-resources/getting-started))
+- A Solana wallet keypair with some SOL for gas
+- A Jito-compatible RPC endpoint (must support `simulateBundle`)
+- A Geyser gRPC endpoint + access token
+- A multicore Linux machine, ideally co-located with your RPC and the Block Engine
+- 16 GB RAM recommended (4 worker threads)
 
-The first step in the backrun strategy is to identify trades that can be backrun. This involves monitoring the mempool, which is a stream of pending transactions. For example, if a trade involving the sale of 250M BONK for 100 USDC on the Raydium exchange is detected, this trade can potentially be backrun.
-
-To determine the direction and size of the trade, the bot simulates the transaction and observes the changes in the account balances. If the USDC vault for the BONK-USDC pair on Raydium decreases by $100, it indicates that someone sold BONK for 100 USDC. This means that the backrun will be at most 100 USDC to bring the markets back in balance.
-
-During this process, the bot listens to the mempool for all transactions that touch any of the relevant decentralized exchanges (DEXs) using the `programSubscribe` function (see `mempool.ts`). Many transactions use lookup tables that need to be resolved first before we know whether the transaction includes any of the relevant vaults. The `lookup-table-provider.ts` is used for this purpose.
-
-### Finding Profitable Backrun Arbitrage
-
-The next step is to find a profitable backrun arbitrage opportunity. This involves considering all possible 2 and 3 hop routes. A hop is a pair, and in this context, it refers to a trade from one asset to another.
-
-For example, if the original trade was a sale of BONK for USD on Raydium, the possible routes for backrun arbitrage could be:
-
-- Buy BONK for USD on Raydium -> Sell BONK for USDC on another exchange (2 hop)
-- Buy BONK for USD on Raydium -> Sell BONK for SOL on Raydium -> Sell SOL for USDC on another exchange (3 hop)
-
-The bot calculates the potential profit for each route in increments of the original trade size divided by a predefined number of steps (`ARB_CALCULATION_NUM_STEPS`). The route with the highest potential profit is selected for the actual backrun.
-
-For accurate calculations, the bot needs recent pool data. On startup, the bot subscribes to Geyser for all pool account changes. To perform the actual math, the bot uses Amm objects from the Jupiter SDK. These "calculator" objects are initialized and updated with the pool data from Geyser and can be used to calculate a quote. Each worker thread has its own set of these Amm objects, one for each pool (see `markets/amm-calc-worker.ts`).
-
-### Executing the Arbitrage Transaction
-
-The final step is to execute the arbitrage transaction. To do this without providing capital, the bot uses flashloans from Solend, a decentralized lending platform.
-
-The basic structure of the arbitrage transaction is:
-
-- Borrow SOL or USDC from Solend using a flashloan
-- Execute the arbitrage route using the Jupiter program
-- Repay the flashloan
-- Tip the validator
-
-The Jupiter program is used because it supports multi-hop swaps, which are necessary for executing the arbitrage route.
-
-However, one challenge with executing the transaction is the transaction size. Some hops require a lot of accounts, which can make the transaction too large. To address this, the bot uses lookup tables to reduce the transaction size.
-
-However, there's a constraint with jito bundles: a transaction in a bundle cannot use a lookup table that has been modified in the same bundle. To work around this, the bot caches all lookup tables it encounters in txns from the mempool in the `lookup-table-provider.ts` and then selects up to the three lookup tables that decrease the transaction size the most. This solution works well, especially after the bot has been running for a while.
-
-Once the transaction is executed, the bot queries the RPC for the backrun transaction after a delay of 30 seconds. The result and other data are then recorded in a CSV file.
-
-## How to run
-
-### Pre-requisites
-
-- block engine api keypair (see <https://jito-labs.gitbook.io/mev/searcher-resources/getting-started>)
-- RPC running
-  - jito-solana (because bot uses simulateBundle rpc call)
-  - jito geyser plugin <https://github.com/jito-foundation/geyser-grpc-plugin>
-  - no rate limit (doing a lot of getAccountInfo on startup and sometimes a lot of simulations)
-- keypair of wallet with some sol
-- multicore linux machine, preferably in same region with rpc and block engine
-- 16gb of ram for running the bot with 4 worker threads
-- nodejs 16 and yarn installed
-- docker installed (optional)
-
-### Run directly
-
-1. Copy `.env.example` to `.env` and fill in the values.
-`AUTH_KEYPAIR_PATH` is your block engine api keypair and
-`PAYER_KEYPAIR_PATH` is your wallet keypair.
-2. Run the following commands:
+### Setup
 
 ```bash
-yarn install
-yarn start
+# 1. Clone the repo
+git clone https://github.com/Disseveru/solana-jito-flash-searcher.git
+cd solana-jito-flash-searcher
+
+# 2. Install dependencies
+npm install
+
+# 3. Configure environment
+cp .env.example .env
+# Edit .env with your keypair paths, RPC URL, Block Engine URL, etc.
+
+# 4. Run in Simulation Mode (dry-run — no bundles are broadcast)
+SIMULATION_MODE=true npm start
+
+# 5. Run in Production Mode (live bundle broadcasting)
+npm start
 ```
 
-### Run with docker
-
-1. Copy `.env.docker.example` to `.env.docker` and fill in the values. Leave `AUTH_KEYPAIR_PATH` and `PAYER_KEYPAIR_PATH` in the .env as they are.
-2. Run the following commands:
+### One-Line Simulation Start
 
 ```bash
-sudo docker build . -t mev-bot
+SIMULATION_MODE=true npm start
+```
+
+This builds the project and starts the bot in **Simulation Mode**: the full pipeline runs (mempool → filter → simulate → FlashBrain), but bundles are logged instead of sent to the Block Engine.
+
+### Run Legacy Pipeline
+
+The original `bot.ts` pipeline (pre-Jupiter v6) is still available:
+
+```bash
+npm run start:legacy
+```
+
+### Run with Docker
+
+```bash
+sudo docker build . -t flash-searcher
 export AUTH_KEYPAIR_PATH=/path/to/your/block/engine/keypair.json
 export PAYER_KEYPAIR_PATH=/path/to/your/wallet/keypair.json
 touch docker.trades.csv
@@ -102,15 +91,63 @@ sudo docker run \
     -v $AUTH_KEYPAIR_PATH:/usr/src/app/auth.json:ro \
     -v $PAYER_KEYPAIR_PATH:/usr/src/app/payer.json:ro \
     -v $PWD/docker.trades.csv:/usr/src/app/trades.csv \
-    --env-file .env.docker.local \
+    --env-file .env \
     --restart=on-failure \
-    mev-bot
+    flash-searcher
 ```
+
+## Environment Variables
+
+See [`.env.example`](.env.example) for a complete list. Key variables:
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `PAYER_KEYPAIR_PATH` | ✅ | Path to your Solana wallet keypair JSON |
+| `AUTH_KEYPAIR_PATH` | ✅ | Path to your Jito Block Engine auth keypair JSON |
+| `RPC_URL` | ✅ | Jito-compatible RPC URL (must support `simulateBundle`) |
+| `BLOCK_ENGINE_URLS` | ✅ | Comma-separated Jito Block Engine URLs |
+| `GEYSER_URL` | ✅ | Geyser gRPC endpoint URL |
+| `GEYSER_ACCESS_TOKEN` | ✅ | Geyser access token |
+| `TIP_PERCENT` | | Percentage of profit to tip Jito validators (default: 25) |
+| `SIMULATION_MODE` | | Set to `true` to run without broadcasting bundles |
 
 ## Directory Structure
 
-- `./analyze/` - jupyter notebook for analyzing trades from the csv
-- `./update-pool-lists.sh` - script for updating list of all pools
-- `./src/bot.ts` - entrypoint for the bot
-- `./src/clients/` - clients for rpc, block engine and geyser
-- `./src/markets/` - logic for getting all the pools and calculating routes on them
+```
+src/
+├── index.ts                 # Modernized entry point (Jupiter v6 + FlashBrain)
+├── flash_brain.ts           # Flash loan arb engine (Jupiter v6 quotes + Solend)
+├── bot.ts                   # Legacy entry point (original pipeline)
+├── build-bundle.ts          # Legacy bundle construction
+├── calculate-arb.ts         # Legacy arb route calculation
+├── config.ts                # Configuration (convict + dotenv)
+├── constants.ts             # Solend addresses, base mints, fee constants
+├── logger.ts                # Pino logger
+├── lookup-table-provider.ts # Address lookup table caching
+├── mempool.ts               # Jito mempool subscription
+├── simulation.ts            # simulateBundle RPC wrapper
+├── pre-simulation-filter.ts # Pre-sim transaction filtering
+├── post-simulation-filter.ts# Post-sim trade detection
+├── send-bundle.ts           # Legacy bundle sender
+├── types.ts                 # Shared type definitions
+├── utils.ts                 # Async generators, priority queues
+├── worker-pool.ts           # Worker thread pool
+├── clients/
+│   ├── jito.ts              # Jito SearcherClient + GeyserClient
+│   └── rpc.ts               # Rate-limited RPC connection
+└── markets/
+    ├── index.ts             # Market initialization + route calculation
+    ├── types.ts             # DEX types, Market, Quote, SwapLeg
+    ├── utils.ts             # Serialization helpers
+    ├── market-graph.ts      # Mint-pair graph
+    ├── amm-calc-worker.ts   # Worker thread AMM calculator
+    ├── orca/                # Orca AMM pools
+    ├── orca-whirlpool/      # Orca Whirlpool pools
+    ├── raydium/             # Raydium AMM pools
+    └── raydium-clmm/        # Raydium CLMM pools
+analyze/                     # Jupyter notebook for trade analysis
+```
+
+## License
+
+Apache-2.0 — See [LICENSE](LICENSE).
