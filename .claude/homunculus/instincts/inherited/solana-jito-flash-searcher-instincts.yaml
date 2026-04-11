@@ -1,0 +1,372 @@
+# Instincts generated from https://github.com/Disseveru/solana-jito-flash-searcher
+# Generated: 2026-04-11T06:09:53.061Z
+# Version: 2.0
+# NOTE: This file supplements (does not replace) any existing curated instincts.
+# High-confidence manually curated instincts should be preserved alongside these.
+
+---
+id: solana-jito-flash-searcher-commit-length
+trigger: "when writing a commit message"
+confidence: 0.6
+domain: git
+source: repo-analysis
+source_repo: https://github.com/Disseveru/solana-jito-flash-searcher
+---
+
+# Solana Jito Flash Searcher Commit Length
+
+## Action
+
+Write moderate-length commit messages (~70 characters)
+
+## Evidence
+
+- Average commit message length: 70 chars
+- Based on 5 commits
+
+---
+id: solana-jito-flash-searcher-naming-files
+trigger: "when creating a new file"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/Disseveru/solana-jito-flash-searcher
+---
+
+# Solana Jito Flash Searcher Naming Files
+
+## Action
+
+Use camelCase naming convention
+
+## Evidence
+
+- Analyzed file naming patterns in repository
+- Dominant pattern: camelCase
+
+---
+id: solana-jito-flash-searcher-import-relative
+trigger: "when importing modules"
+confidence: 0.75
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/Disseveru/solana-jito-flash-searcher
+---
+
+# Solana Jito Flash Searcher Import Relative
+
+## Action
+
+Use relative imports for project files
+
+## Evidence
+
+- Import analysis shows relative import pattern
+- Example: import { x } from '../lib/x'
+
+---
+id: solana-jito-flash-searcher-export-style
+trigger: "when exporting from a module"
+confidence: 0.7
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/Disseveru/solana-jito-flash-searcher
+---
+
+# Solana Jito Flash Searcher Export Style
+
+## Action
+
+Prefer named exports
+
+## Evidence
+
+- Export pattern analysis
+- Dominant style: named
+
+---
+id: solana-jito-flash-searcher-test-separate
+trigger: "when writing tests"
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/Disseveru/solana-jito-flash-searcher
+---
+
+# Solana Jito Flash Searcher Test Separate
+
+## Action
+
+Place tests in the tests/ or __tests__/ directory, mirroring src structure
+
+## Evidence
+
+- Separate test directory pattern detected
+- Tests live in dedicated test folders
+
+---
+id: solana-jito-flash-searcher-workflow-feature-implementation-and-integration
+trigger: "when doing feature implementation and integration"
+confidence: 0.6
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/Disseveru/solana-jito-flash-searcher
+---
+
+# Solana Jito Flash Searcher Workflow Feature Implementation And Integration
+
+## Action
+
+Follow the feature-implementation-and-integration workflow:
+1. Create or update a new module file in src/
+2. Update src/index.ts to integrate the new module or feature
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~2x per month
+- Files: src/flash_brain.ts, src/index.ts
+
+---
+id: solana-jito-flash-searcher-workflow-configuration-and-documentation-update
+trigger: "when doing configuration and documentation update"
+confidence: 0.6
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/Disseveru/solana-jito-flash-searcher
+---
+
+# Solana Jito Flash Searcher Workflow Configuration And Documentation Update
+
+## Action
+
+Follow the configuration-and-documentation-update workflow:
+1. Update .env.example to reflect new or changed environment variables
+2. Update README.md to document new features or configuration options
+3. Update related config or entry files to support the new settings
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~2x per month
+- Files: .env.example, README.md, src/config.ts
+
+---
+id: solana-jito-flash-searcher-instinct-filename-camelCase
+trigger: "When creating or renaming a file in src/"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: Disseveru/solana-jito-flash-searcher
+---
+
+# Solana Jito Flash Searcher Instinct Filename CamelCase
+
+## Action
+
+Name the file using camelCase (e.g., flashBrain.ts).
+
+## Evidence
+
+- Pattern in src/flash_brain.ts
+- Naming conventions in analysis
+
+---
+id: solana-jito-flash-searcher-instinct-function-camelCase
+trigger: "When defining a function or method."
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: Disseveru/solana-jito-flash-searcher
+---
+
+# Solana Jito Flash Searcher Instinct Function CamelCase
+
+## Action
+
+Use camelCase for function and method names.
+
+## Evidence
+
+- Naming conventions in analysis
+- Pattern in TypeScript codebase
+
+---
+id: solana-jito-flash-searcher-instinct-class-PascalCase
+trigger: "When declaring a class."
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: Disseveru/solana-jito-flash-searcher
+---
+
+# Solana Jito Flash Searcher Instinct Class PascalCase
+
+## Action
+
+Use PascalCase for class names.
+
+## Evidence
+
+- Naming conventions in analysis
+
+---
+id: solana-jito-flash-searcher-instinct-constant-SCREAMING_SNAKE_CASE
+trigger: "When declaring a constant."
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: Disseveru/solana-jito-flash-searcher
+---
+
+# Solana Jito Flash Searcher Instinct Constant SCREAMING_SNAKE_CASE
+
+## Action
+
+Use SCREAMING_SNAKE_CASE for constant names.
+
+## Evidence
+
+- Naming conventions in analysis
+
+---
+id: solana-jito-flash-searcher-instinct-import-relative
+trigger: "When importing modules within the project."
+confidence: 0.85
+domain: code-style
+source: repo-analysis
+source_repo: Disseveru/solana-jito-flash-searcher
+---
+
+# Solana Jito Flash Searcher Instinct Import Relative
+
+## Action
+
+Use relative import paths.
+
+## Evidence
+
+- importStyle: relative
+- Pattern in src/index.ts
+
+---
+id: solana-jito-flash-searcher-instinct-export-named
+trigger: "When exporting functions, classes, or constants."
+confidence: 0.85
+domain: code-style
+source: repo-analysis
+source_repo: Disseveru/solana-jito-flash-searcher
+---
+
+# Solana Jito Flash Searcher Instinct Export Named
+
+## Action
+
+Use named exports.
+
+## Evidence
+
+- exportStyle: named
+- Pattern in TypeScript codebase
+
+---
+id: solana-jito-flash-searcher-instinct-test-location-separate
+trigger: "When adding or updating tests."
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: Disseveru/solana-jito-flash-searcher
+---
+
+# Solana Jito Flash Searcher Instinct Test Location Separate
+
+## Action
+
+Place test files in a separate test folder, not mixed with src/.
+
+## Evidence
+
+- testLocation: separate
+- Folder structure in analysis
+
+---
+id: solana-jito-flash-searcher-instinct-test-pattern-hybrid
+trigger: "When writing tests for new features or modules."
+confidence: 0.7
+domain: testing
+source: repo-analysis
+source_repo: Disseveru/solana-jito-flash-searcher
+---
+
+# Solana Jito Flash Searcher Instinct Test Pattern Hybrid
+
+## Action
+
+Write tests in a hybrid style, combining unit and integration tests as appropriate.
+
+## Evidence
+
+- moduleOrganization: hybrid
+- Pattern inferred from architecture
+
+---
+id: solana-jito-flash-searcher-instinct-commit-freeform
+trigger: "When writing a commit message."
+confidence: 0.9
+domain: git
+source: repo-analysis
+source_repo: Disseveru/solana-jito-flash-searcher
+---
+
+# Solana Jito Flash Searcher Instinct Commit Freeform
+
+## Action
+
+Use a freeform, descriptive commit message without a strict prefix, typically under 70 characters.
+
+## Evidence
+
+- commits.type: freeform
+- commits.averageLength: 70
+- Examples: 'Modernize dependencies and add Flash Brain + new searcher entry point'
+
+---
+id: solana-jito-flash-searcher-instinct-feature-implementation-integration
+trigger: "When adding a new feature or major module to the project."
+confidence: 0.9
+domain: workflow
+source: repo-analysis
+source_repo: Disseveru/solana-jito-flash-searcher
+---
+
+# Solana Jito Flash Searcher Instinct Feature Implementation Integration
+
+## Action
+
+Create or update a module file in src/, then update src/index.ts to integrate it.
+
+## Evidence
+
+- feature-implementation-and-integration workflow
+- Example: src/flash_brain.ts, src/index.ts
+
+---
+id: solana-jito-flash-searcher-instinct-config-doc-update
+trigger: "When adding a new environment variable, mode, or clarifying documentation."
+confidence: 0.85
+domain: workflow
+source: repo-analysis
+source_repo: Disseveru/solana-jito-flash-searcher
+---
+
+# Solana Jito Flash Searcher Instinct Config Doc Update
+
+## Action
+
+Update .env.example, README.md, and relevant config or entry files to reflect the changes.
+
+## Evidence
+
+- configuration-and-documentation-update workflow
+- Example: .env.example, README.md, src/config.ts, src/index.ts
+
