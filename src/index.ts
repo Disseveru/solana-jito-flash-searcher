@@ -322,7 +322,7 @@ async function handleTrade(trade: BackrunnableTrade): Promise<void> {
         ` | borrow ${borrowAmount} | gross profit ${grossProfitLamports} lamports` +
         ` | tip ${tipLamports} lamports | input ${inputMint} → ${outputMint}`,
     );
-    logger.info('✅ Simulation Successful — bundle validated but NOT broadcast (SIMULATION_MODE=true)');
+    logger.info('✅ Simulation successful — bundle validated but NOT broadcast (SIMULATION_MODE=true)');
     return;
   }
 
