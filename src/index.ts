@@ -15,7 +15,6 @@
 import * as fs from 'fs';
 import {
   Keypair,
-  PublicKey,
   VersionedTransaction,
   RpcResponseAndContext,
 } from '@solana/web3.js';
@@ -30,21 +29,12 @@ import {
 import { config } from './config.js';
 import { logger } from './logger.js';
 import { connection } from './clients/rpc.js';
-import { searcherClient, searcherClients } from './clients/jito.js';
+import { searcherClient } from './clients/jito.js';
 import { FlashBrain } from './flash_brain.js';
-import { mempool, MempoolUpdate } from './mempool.js';
+import { mempool } from './mempool.js';
 import { preSimulationFilter } from './pre-simulation-filter.js';
-import { simulate, SimulationResult } from './simulation.js';
-import { postSimulateFilter } from './post-simulation-filter.js';
-import { BackrunnableTrade } from './post-simulation-filter.js';
-import { fuseGenerators } from './utils.js';
-import {
-  BASE_MINTS_OF_INTEREST,
-  BASE_MINTS_OF_INTEREST_B58,
-  SOLEND_FLASHLOAN_FEE_BPS,
-  SOL_DECIMALS,
-  USDC_DECIMALS,
-} from './constants.js';
+import { simulate } from './simulation.js';
+import { postSimulateFilter, BackrunnableTrade } from './post-simulation-filter.js';
 import { Timings } from './types.js';
 
 // ── Configuration ──────────────────────────────────────────────
@@ -55,11 +45,6 @@ const payer = Keypair.fromSecretKey(
     JSON.parse(fs.readFileSync(PAYER_KEYPAIR_PATH, 'utf-8')),
   ),
 );
-
-const MIN_TIP_LAMPORTS = config.get('min_tip_lamports');
-
-/** Dynamic tip: 25 % of net profit */
-const TIP_PERCENT = 25;
 
 /** Transaction base fees (≤3 sigs × 5 000 lamports) */
 const TXN_FEES_LAMPORTS = 15_000;
@@ -252,7 +237,6 @@ async function handleTrade(trade: BackrunnableTrade): Promise<void> {
     txn: victimTxn,
     market,
     baseIsTokenA,
-    tradeDirection,
     tradeSizeA,
     tradeSizeB,
     timings,
