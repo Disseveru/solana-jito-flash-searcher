@@ -26,7 +26,8 @@ This starts the Express + Socket.IO dashboard on port 3000 with interactive star
 
 ### Key gotchas
 
-- The `agentkeepalive` package creates an `http.Agent` by default. The `JitoRpcConnection` constructor from `jito-ts` rejects `http.Agent` for `https://` RPC URLs. If testing locally without real infra, set `RPC_URL` to `http://localhost:8899` in `.env`.
 - Keypair files (`auth.json`, `payer.json`) are required at startup. Generate dummy ones with: `node -e "const{Keypair}=require('@solana/web3.js');const fs=require('fs');fs.writeFileSync('auth.json',JSON.stringify(Array.from(Keypair.generate().secretKey)));fs.writeFileSync('payer.json',JSON.stringify(Array.from(Keypair.generate().secretKey)))"`
+- If the `PRIVATE_KEY` secret is base58-encoded (88 chars), convert to JSON array format: `node -e "const bs58=require('bs58');const fs=require('fs');const arr=Array.from(bs58.decode(process.env.PRIVATE_KEY));fs.writeFileSync('payer.json',JSON.stringify(arr));fs.writeFileSync('auth.json',JSON.stringify(arr))"`
+- The full bot (`npm start`) requires all Jito infrastructure: `SOLANA_RPC_URL`, `BLOCK_ENGINE_URL`, `GEYSER_URL`, `GEYSER_ACCESS_TOKEN`, and `PRIVATE_KEY` secrets. The Geyser gRPC connection failure crashes the process before the dashboard starts.
 - The project has both `yarn.lock` and `package-lock.json`; use `npm install` for consistency with `package.json` scripts.
 - No automated test suite exists in this repository.
