@@ -14,8 +14,9 @@ Implements a new feature or module and integrates it with the main entry point.
 
 ## Common Files
 
-- `src/flash_brain.ts`
-- `src/index.ts`
+- `src/bot.ts`
+- `src/calculate-arb.ts`
+- `src/build-bundle.ts`
 
 ## Suggested Sequence
 
@@ -27,7 +28,7 @@ Implements a new feature or module and integrates it with the main entry point.
 ## Typical Commit Signals
 
 - Create or update a new module file in src/
-- Update src/index.ts to integrate the new module or feature
+- Update src/bot.ts to integrate the new module or feature
 
 ## Notes
 

@@ -17,7 +17,7 @@ Updates configuration examples and documentation, often alongside code changes f
 - `.env.example`
 - `README.md`
 - `src/config.ts`
-- `src/index.ts`
+- `src/bot.ts`
 
 ## Suggested Sequence
 

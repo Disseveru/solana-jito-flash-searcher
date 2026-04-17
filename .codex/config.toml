@@ -7,26 +7,26 @@ web_search = "live"
 
 [mcp_servers.github]
 command = "npx"
-args = ["-y", "@modelcontextprotocol/server-github"]
+args = ["-y", "@modelcontextprotocol/server-github@0.5.0"]
 
 [mcp_servers.context7]
 command = "npx"
-args = ["-y", "@upstash/context7-mcp@latest"]
+args = ["-y", "@upstash/context7-mcp@1.0.14"]
 
 [mcp_servers.exa]
 url = "https://mcp.exa.ai/mcp"
 
 [mcp_servers.memory]
 command = "npx"
-args = ["-y", "@modelcontextprotocol/server-memory"]
+args = ["-y", "@modelcontextprotocol/server-memory@0.5.0"]
 
 [mcp_servers.playwright]
 command = "npx"
-args = ["-y", "@playwright/mcp@latest", "--extension"]
+args = ["-y", "@playwright/mcp@0.0.31", "--extension"]
 
 [mcp_servers.sequential-thinking]
 command = "npx"
-args = ["-y", "@modelcontextprotocol/server-sequential-thinking"]
+args = ["-y", "@modelcontextprotocol/server-sequential-thinking@0.5.0"]
 
 [features]
 multi_agent = true
