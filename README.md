@@ -63,6 +63,16 @@ SIMULATION_MODE=true npm start
 npm start
 ```
 
+### Build in GitHub Codespaces
+
+1. In GitHub, open this repository and click **Code** → **Codespaces** → **Create codespace on branch**.
+2. Wait for initialization to complete (`npm ci` runs automatically from `.devcontainer/devcontainer.json`).
+3. Build the project:
+
+```bash
+npm run build
+```
+
 ### One-Line Simulation Start
 
 ```bash
