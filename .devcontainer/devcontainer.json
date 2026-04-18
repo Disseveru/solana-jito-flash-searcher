@@ -1,0 +1,14 @@
+{
+  "name": "solana-jito-flash-searcher",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:1-20-bullseye",
+  "postCreateCommand": "npm ci",
+  "postStartCommand": "npm run build",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode"
+      ]
+    }
+  }
+}
